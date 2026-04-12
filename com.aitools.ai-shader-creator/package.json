@@ -1,0 +1,21 @@
+{
+  "name": "com.aitools.ai-shader-creator",
+  "version": "1.0.0",
+  "displayName": "AI Shader Creator",
+  "description": "Generate URP shaders and VFX effects using AI. Just describe what you want in the chat interface.",
+  "unity": "2022.3",
+  "author": {
+    "name": "AITools"
+  },
+  "dependencies": {
+    "com.unity.editorcoroutines": "1.0.0",
+    "com.unity.render-pipelines.universal": "14.0.0"
+  },
+  "keywords": [
+    "shader",
+    "vfx",
+    "ai",
+    "urp",
+    "tool"
+  ]
+}
