@@ -31,7 +31,7 @@ namespace AIShaderCreator.Editor
             var messages = ShaderUtil.GetShaderMessages(shader);
             foreach (var msg in messages)
             {
-                if (msg.severity == UnityEditor.ShaderCompilerMessageSeverity.Error)
+                if (msg.severity.ToString() == "Error")
                 {
                     errors.Add(new ShaderError
                     {
