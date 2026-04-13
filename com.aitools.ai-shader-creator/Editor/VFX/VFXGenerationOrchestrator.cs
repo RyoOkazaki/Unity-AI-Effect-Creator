@@ -6,13 +6,15 @@ namespace AIShaderCreator.Editor
     public class VFXGenerationResult
     {
         public bool Success;
-        public string PrefabAssetPath;
-        public string EffectName;
+        public string ScriptAssetPath;
         public string ErrorMessage;
     }
 
     public class VFXGenerationOrchestrator
     {
+        private const string BeginMarker = "VFX_CODE_BEGIN";
+        private const string EndMarker   = "VFX_CODE_END";
+
         private readonly IAIClient _client;
 
         public VFXGenerationOrchestrator(IAIClient client)
@@ -28,14 +30,14 @@ namespace AIShaderCreator.Editor
         {
             onStatus?.Invoke("AIにリクエスト中...");
 
-            var systemPrompt = VFXSystemPromptBuilder.BuildVFXGenerationPrompt();
-            var messages = history.ToApiMessages();
+            var systemPrompt = VFXCodeSystemPromptBuilder.Build();
+            var messages     = history.ToApiMessages();
 
             string responseText = null;
-            string apiError = null;
+            string apiError     = null;
 
             yield return _client.SendMessageCoroutine(
-                systemPrompt, messages, 4096,
+                systemPrompt, messages, 8192,
                 r => responseText = r,
                 e => apiError = e
             );
@@ -48,30 +50,31 @@ namespace AIShaderCreator.Editor
 
             history.AddAssistantMessage(responseText);
 
-            if (!VFXParser.TryExtractConfig(responseText, out var config))
+            if (!TryExtractCode(responseText, out var effectCode))
             {
                 onComplete?.Invoke(new VFXGenerationResult
                 {
                     Success = false,
-                    ErrorMessage = "エフェクト設定をレスポンスから抽出できませんでした。"
+                    ErrorMessage = "C#コードをレスポンスから抽出できませんでした。"
                 });
                 yield break;
             }
 
-            onStatus?.Invoke($"エフェクトを生成中: {config.displayName}...");
+            onStatus?.Invoke("スクリプトを書き込み中...");
             yield return null;
 
-            string prefabPath;
+            string scriptPath;
             try
             {
-                prefabPath = ParticleEffectFactory.CreatePrefab(config);
+                VFXCodeWriter.Write(effectCode, out _);
+                scriptPath = "Assets/GeneratedVFX/_scripts/ (自動削除されます)";
             }
             catch (Exception ex)
             {
                 onComplete?.Invoke(new VFXGenerationResult
                 {
                     Success = false,
-                    ErrorMessage = $"プレハブ生成に失敗しました: {ex.Message}"
+                    ErrorMessage = $"スクリプト書き込みに失敗しました: {ex.Message}"
                 });
                 yield break;
             }
@@ -79,9 +82,22 @@ namespace AIShaderCreator.Editor
             onComplete?.Invoke(new VFXGenerationResult
             {
                 Success = true,
-                PrefabAssetPath = prefabPath,
-                EffectName = config.displayName ?? config.effectType
+                ScriptAssetPath = scriptPath
             });
+        }
+
+        private static bool TryExtractCode(string response, out string code)
+        {
+            code = null;
+            var begin = response.IndexOf(BeginMarker);
+            var end   = response.IndexOf(EndMarker);
+            if (begin < 0 || end < 0 || end <= begin) return false;
+
+            code = response.Substring(begin + BeginMarker.Length, end - begin - BeginMarker.Length).Trim();
+            // コードフェンスを除去
+            if (code.StartsWith("```")) code = code.Substring(code.IndexOf('\n') + 1);
+            if (code.EndsWith("```"))   code = code.Substring(0, code.LastIndexOf("```")).TrimEnd();
+            return !string.IsNullOrWhiteSpace(code);
         }
     }
 }

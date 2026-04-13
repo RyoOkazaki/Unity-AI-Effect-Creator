@@ -336,11 +336,8 @@ namespace AIShaderCreator.Editor
             {
                 if (result.Success)
                 {
-                    var msg = $"✅ エフェクト '{result.EffectName}' を生成しました。\nパス: {result.PrefabAssetPath}\n\nシーンにドラッグ＆ドロップして使用してください。";
+                    var msg = "✅ エフェクトコードを生成しました。\n\nUnity が自動コンパイル後、Assets/GeneratedVFX/ にプレハブが作成されます。\nコンパイルが完了したら Project ウィンドウを確認してください。";
                     _vfxHistory.AddAssistantMessage(msg);
-
-                    var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(result.PrefabAssetPath);
-                    if (prefab != null) EditorGUIUtility.PingObject(prefab);
                 }
                 else
                 {
