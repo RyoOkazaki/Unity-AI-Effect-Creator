@@ -45,7 +45,7 @@ namespace AIShaderCreator.Editor
             string apiError = null;
 
             yield return _client.SendMessageCoroutine(
-                systemPrompt, messages, 4096,
+                systemPrompt, messages, 8192,
                 r => apiResponseText = r,
                 e => apiError = e
             );
