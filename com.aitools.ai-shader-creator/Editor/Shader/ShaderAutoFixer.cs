@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.IO;
-using UnityEditor;
 using UnityEngine;
 
 namespace AIShaderCreator.Editor
@@ -10,9 +9,9 @@ namespace AIShaderCreator.Editor
     {
         public const int MaxAttempts = 3;
 
-        private readonly ClaudeApiClient _client;
+        private readonly IAIClient _client;
 
-        public ShaderAutoFixer(ClaudeApiClient client)
+        public ShaderAutoFixer(IAIClient client)
         {
             _client = client;
         }
@@ -21,8 +20,8 @@ namespace AIShaderCreator.Editor
             string shaderAssetPath,
             ShaderError[] errors,
             int attemptNumber,
-            Action<string> onFixed,      // 修正済みassetPath
-            Action<string> onFailed)     // エラーメッセージ
+            Action<string> onFixed,
+            Action<string> onFailed)
         {
             var absolutePath = Path.Combine(
                 Application.dataPath.Replace("Assets", ""), shaderAssetPath);
@@ -39,11 +38,7 @@ namespace AIShaderCreator.Editor
 
             var messages = new[]
             {
-                new ClaudeMessage
-                {
-                    role = "user",
-                    content = $"以下のシェーダーのコンパイルエラーを修正してください。\n\nエラー:\n{errorsJson}"
-                }
+                new ChatMessage("user", $"以下のシェーダーのコンパイルエラーを修正してください。\n\nエラー:\n{errorsJson}")
             };
 
             string fixedCode = null;
@@ -51,7 +46,7 @@ namespace AIShaderCreator.Editor
 
             yield return _client.SendMessageCoroutine(
                 systemPrompt, messages, 4096,
-                response => fixedCode = response.GetText(),
+                response => fixedCode = response,
                 error => apiError = error
             );
 
@@ -69,7 +64,6 @@ namespace AIShaderCreator.Editor
 
             var updatedPath = ShaderFileWriter.Update(shaderAssetPath, extracted);
 
-            // インポート完了まで1フレーム待つ
             yield return null;
             yield return null;
 

@@ -36,23 +36,21 @@ namespace AIShaderCreator.Editor
 
         public void Clear() => _messages.Clear();
 
-        // Claude API送信用メッセージ（最新MaxApiMessages件 / userとassistantのみ）
-        public ClaudeMessage[] ToApiMessages()
+        // API送信用メッセージ（最新MaxApiMessages件 / userとassistantのみ）
+        public ChatMessage[] ToApiMessages()
         {
-            var result = new List<ClaudeMessage>();
+            var result = new List<ChatMessage>();
             foreach (var msg in _messages)
             {
                 if (msg.Role == MessageRole.User)
-                    result.Add(new ClaudeMessage { role = "user", content = msg.Content });
+                    result.Add(new ChatMessage("user", msg.Content));
                 else if (msg.Role == MessageRole.Assistant)
-                    result.Add(new ClaudeMessage { role = "assistant", content = msg.Content });
+                    result.Add(new ChatMessage("assistant", msg.Content));
             }
 
-            // 最新N件に絞る（APIトークン節約）
             if (result.Count > MaxApiMessages)
                 result = result.GetRange(result.Count - MaxApiMessages, MaxApiMessages);
 
-            // 最初のメッセージはuserである必要があるためチェック
             while (result.Count > 0 && result[0].role != "user")
                 result.RemoveAt(0);
 

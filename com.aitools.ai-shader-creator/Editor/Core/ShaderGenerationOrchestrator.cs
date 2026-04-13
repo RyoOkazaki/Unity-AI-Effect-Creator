@@ -16,10 +16,10 @@ namespace AIShaderCreator.Editor
 
     public class ShaderGenerationOrchestrator
     {
-        private readonly ClaudeApiClient _client;
+        private readonly IAIClient _client;
         private readonly ShaderAutoFixer _fixer;
 
-        public ShaderGenerationOrchestrator(ClaudeApiClient client)
+        public ShaderGenerationOrchestrator(IAIClient client)
         {
             _client = client;
             _fixer = new ShaderAutoFixer(client);
@@ -34,7 +34,6 @@ namespace AIShaderCreator.Editor
         {
             onStatus?.Invoke("AIにリクエスト中...");
 
-            // システムプロンプト決定（初回生成 or 継続修正）
             var hasExistingShader = !string.IsNullOrEmpty(GetLastShaderCode(history));
             var systemPrompt = hasExistingShader
                 ? SystemPromptBuilder.BuildContinuationPrompt()
@@ -47,7 +46,7 @@ namespace AIShaderCreator.Editor
 
             yield return _client.SendMessageCoroutine(
                 systemPrompt, messages, 4096,
-                r => apiResponseText = r.GetText(),
+                r => apiResponseText = r,
                 e => apiError = e
             );
 
@@ -74,7 +73,6 @@ namespace AIShaderCreator.Editor
 
             var assetPath = ShaderFileWriter.Write(shaderCode, shaderName);
 
-            // 1フレーム待ってインポート完了を確認
             yield return null;
             yield return null;
 

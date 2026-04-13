@@ -14,6 +14,10 @@ namespace AIShaderCreator.Editor
         private bool _applyToSelected = true;
         private Vector2 _chatScrollPos;
 
+        // ---- AI Service selection ----
+        private AIService _selectedService = AIService.Claude;
+        private static readonly string[] ServiceLabels = { "Claude", "OpenAI", "Gemini" };
+
         // ---- Services ----
         private ShaderGenerationOrchestrator _orchestrator;
 
@@ -28,20 +32,23 @@ namespace AIShaderCreator.Editor
         public static void Open()
         {
             var w = GetWindow<AIShaderCreatorWindow>("AI Shader Creator");
-            w.minSize = new Vector2(420, 500);
+            w.minSize = new Vector2(420, 520);
         }
 
         private void OnEnable()
         {
+            _selectedService = (AIService)EditorPrefs.GetInt("AIShaderCreator_Service", 0);
             RebuildOrchestrator();
         }
 
         private void RebuildOrchestrator()
         {
-            var apiKey = ApiKeyStorage.Load();
-            var model = EditorPrefs.GetString("AIShaderCreator_Model", ClaudeApiClient.ModelOpus);
-            if (!string.IsNullOrEmpty(apiKey))
-                _orchestrator = new ShaderGenerationOrchestrator(new ClaudeApiClient(apiKey, model));
+            if (!AIServiceFactory.HasKey(_selectedService)) return;
+            var model = EditorPrefs.GetString(
+                AIServiceFactory.GetModelPrefsKey(_selectedService),
+                AIServiceFactory.GetDefaultModel(_selectedService));
+            var client = AIServiceFactory.Create(_selectedService, model);
+            _orchestrator = new ShaderGenerationOrchestrator(client);
         }
 
         private void InitStyles()
@@ -81,40 +88,62 @@ namespace AIShaderCreator.Editor
             InitStyles();
 
             // ---- APIキー未設定の警告 ----
-            if (!ApiKeyStorage.HasKey())
+            if (!AIServiceFactory.HasKey(_selectedService))
             {
                 EditorGUILayout.HelpBox(
-                    "APIキーが設定されていません。\nTools > AI Shader Creator > Settings から設定してください。",
+                    $"{_selectedService} の APIキーが設定されていません。\nTools > AI Shader Creator > Settings から設定してください。",
                     MessageType.Warning);
                 if (GUILayout.Button("Settings を開く"))
                     SettingsWindow.Open();
-                return;
             }
+
+            // ---- サービス選択 ----
+            DrawServiceSelector();
 
             // ---- チャット履歴 ----
             DrawChatHistory();
 
             // ---- ステータス ----
             if (!string.IsNullOrEmpty(_statusMessage))
-            {
                 EditorGUILayout.LabelField(_statusMessage, _statusStyle);
-            }
 
             EditorGUILayout.Space(4);
 
             // ---- 対象GameObject ----
-            EditorGUILayout.BeginHorizontal();
             _applyToSelected = EditorGUILayout.ToggleLeft(
                 "選択中のGameObjectにマテリアルを適用", _applyToSelected);
-            EditorGUILayout.EndHorizontal();
 
             // ---- 入力エリア ----
             DrawInputArea();
         }
 
+        private void DrawServiceSelector()
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("AIサービス:", GUILayout.Width(72));
+
+            var newService = (AIService)EditorGUILayout.Popup((int)_selectedService, ServiceLabels);
+            if (newService != _selectedService)
+            {
+                _selectedService = newService;
+                EditorPrefs.SetInt("AIShaderCreator_Service", (int)_selectedService);
+                RebuildOrchestrator();
+            }
+
+            var hasKey = AIServiceFactory.HasKey(_selectedService);
+            var keyColor = hasKey ? new Color(0.5f, 1f, 0.5f) : new Color(1f, 0.5f, 0.5f);
+            var prevColor = GUI.color;
+            GUI.color = keyColor;
+            GUILayout.Label(hasKey ? "● キー設定済" : "● キー未設定", GUILayout.Width(100));
+            GUI.color = prevColor;
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(2);
+        }
+
         private void DrawChatHistory()
         {
-            var chatHeight = position.height - 160;
+            var chatHeight = position.height - 180;
             _chatScrollPos = EditorGUILayout.BeginScrollView(
                 _chatScrollPos, GUILayout.Height(chatHeight));
 
@@ -125,15 +154,12 @@ namespace AIShaderCreator.Editor
                     case MessageRole.User:
                         EditorGUILayout.BeginHorizontal();
                         GUILayout.FlexibleSpace();
-                        // ユーザーメッセージは右寄せ
-                        var userContent = $"🙋 {msg.Content}";
-                        EditorGUILayout.LabelField(userContent, _userBubble,
+                        EditorGUILayout.LabelField($"🙋 {msg.Content}", _userBubble,
                             GUILayout.MaxWidth(position.width * 0.75f));
                         EditorGUILayout.EndHorizontal();
                         break;
 
                     case MessageRole.Assistant:
-                        // シェーダーコード部分は省略表示
                         var displayContent = TruncateShaderCode(msg.Content);
                         EditorGUILayout.LabelField($"🤖 {displayContent}", _assistantBubble);
                         break;
@@ -179,7 +205,6 @@ namespace AIShaderCreator.Editor
 
             EditorGUILayout.EndHorizontal();
 
-            // Enter送信サポート
             var e = Event.current;
             if (e.type == EventType.KeyDown && e.keyCode == KeyCode.Return
                 && e.shift && !_isGenerating && !string.IsNullOrWhiteSpace(_inputText))
@@ -193,11 +218,10 @@ namespace AIShaderCreator.Editor
         {
             if (string.IsNullOrWhiteSpace(_inputText)) return;
 
-            // Orchestratorをリビルド（設定が変わった可能性）
             RebuildOrchestrator();
             if (_orchestrator == null)
             {
-                _history.AddErrorMessage("APIキーが設定されていません。");
+                _history.AddErrorMessage($"{_selectedService} の APIキーが設定されていません。");
                 Repaint();
                 return;
             }
@@ -247,7 +271,6 @@ namespace AIShaderCreator.Editor
                     _history.AddErrorMessage(result.ErrorMessage ?? "不明なエラーが発生しました。");
                     if (!string.IsNullOrEmpty(result.ShaderAssetPath))
                     {
-                        // エラーのあるシェーダーファイルをハイライト
                         var shader = AssetDatabase.LoadAssetAtPath<UnityEngine.Shader>(result.ShaderAssetPath);
                         if (shader != null) EditorGUIUtility.PingObject(shader);
                     }
@@ -258,7 +281,6 @@ namespace AIShaderCreator.Editor
             Repaint();
         }
 
-        // シェーダーコードが長すぎる場合は省略
         private string TruncateShaderCode(string content)
         {
             const int MaxLen = 300;

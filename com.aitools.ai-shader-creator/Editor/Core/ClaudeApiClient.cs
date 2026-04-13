@@ -1,71 +1,63 @@
 using System;
 using System.Collections;
 using System.Text;
-using UnityEngine;
 using UnityEngine.Networking;
 
 namespace AIShaderCreator.Editor
 {
     [Serializable]
-    public class ClaudeMessage
+    class ClaudeReqMsg
     {
         public string role;
         public string content;
     }
 
     [Serializable]
-    public class ClaudeRequest
+    class ClaudeReq
     {
         public string model;
         public int max_tokens;
         public string system;
-        public ClaudeMessage[] messages;
+        public ClaudeReqMsg[] messages;
     }
 
     [Serializable]
-    public class ClaudeResponseContent
+    class ClaudeResContent
     {
         public string type;
         public string text;
     }
 
     [Serializable]
-    public class ClaudeResponse
+    class ClaudeRes
     {
-        public ClaudeResponseContent[] content;
+        public ClaudeResContent[] content;
         public string stop_reason;
-
-        public string GetText()
-        {
-            if (content != null && content.Length > 0)
-                return content[0].text ?? "";
-            return "";
-        }
     }
 
     [Serializable]
-    public class ClaudeErrorResponse
+    class ClaudeErrWrapper
     {
-        public ClaudeError error;
+        public ClaudeErrDetail error;
     }
 
     [Serializable]
-    public class ClaudeError
+    class ClaudeErrDetail
     {
         public string type;
         public string message;
     }
 
-    public class ClaudeApiClient
+    public class ClaudeApiClient : IAIClient
     {
         private const string ApiEndpoint = "https://api.anthropic.com/v1/messages";
         private const string ApiVersion = "2023-06-01";
         public const string ModelOpus = "claude-opus-4-6";
         public const string ModelHaiku = "claude-haiku-4-5-20251001";
+        private const int TimeoutSeconds = 90;
 
         private readonly string _apiKey;
         private readonly string _model;
-        private const int TimeoutSeconds = 90;
 
         public ClaudeApiClient(string apiKey, string model = ModelOpus)
         {
@@ -75,20 +67,24 @@ namespace AIShaderCreator.Editor
 
         public IEnumerator SendMessageCoroutine(
             string systemPrompt,
-            ClaudeMessage[] messages,
+            ChatMessage[] messages,
             int maxTokens,
-            Action<ClaudeResponse> onSuccess,
+            Action<string> onSuccess,
             Action<string> onError)
         {
-            var request = new ClaudeRequest
+            var reqMessages = new ClaudeReqMsg[messages.Length];
+            for (int i = 0; i < messages.Length; i++)
+                reqMessages[i] = new ClaudeReqMsg { role = messages[i].role, content = messages[i].content };
+
+            var request = new ClaudeReq
             {
                 model = _model,
                 max_tokens = maxTokens,
                 system = systemPrompt,
-                messages = messages
+                messages = reqMessages
             };
 
-            var json = JsonUtility.ToJson(request);
+            var json = UnityEngine.JsonUtility.ToJson(request);
             var bodyRaw = Encoding.UTF8.GetBytes(json);
 
             using var webRequest = new UnityWebRequest(ApiEndpoint, "POST");
@@ -103,11 +99,12 @@ namespace AIShaderCreator.Editor
 
             if (webRequest.result == UnityWebRequest.Result.Success)
             {
-                var responseText = webRequest.downloadHandler.text;
                 try
                 {
-                    var response = JsonUtility.FromJson<ClaudeResponse>(responseText);
-                    onSuccess?.Invoke(response);
+                    var response = UnityEngine.JsonUtility.FromJson<ClaudeRes>(webRequest.downloadHandler.text);
+                    var text = (response.content != null && response.content.Length > 0)
+                        ? response.content[0].text ?? "" : "";
+                    onSuccess?.Invoke(text);
                 }
                 catch (Exception e)
                 {
@@ -121,7 +118,7 @@ namespace AIShaderCreator.Editor
                 {
                     try
                     {
-                        var errResp = JsonUtility.FromJson<ClaudeErrorResponse>(webRequest.downloadHandler.text);
+                        var errResp = UnityEngine.JsonUtility.FromJson<ClaudeErrWrapper>(webRequest.downloadHandler.text);
                         if (errResp?.error != null)
                             errorMsg = $"API エラー ({errResp.error.type}): {errResp.error.message}";
                     }
