@@ -28,11 +28,10 @@ namespace AIShaderCreator.Editor
             if (shader == null) return Array.Empty<ShaderError>();
 
             var errors = new List<ShaderError>();
-            int count = ShaderUtil.GetShaderMessageCount(shader);
-            for (int i = 0; i < count; i++)
+            var messages = ShaderUtil.GetShaderMessages(shader);
+            foreach (var msg in messages)
             {
-                var msg = ShaderUtil.GetShaderMessage(shader, i);
-                if (msg.severity == ShaderCompilerMessageSeverity.Error)
+                if (msg.severity == UnityEditor.ShaderCompilerMessageSeverity.Error)
                 {
                     errors.Add(new ShaderError
                     {
