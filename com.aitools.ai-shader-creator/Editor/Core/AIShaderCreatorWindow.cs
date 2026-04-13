@@ -6,8 +6,14 @@ namespace AIShaderCreator.Editor
 {
     public class AIShaderCreatorWindow : EditorWindow
     {
+        // ---- Mode ----
+        private enum EditorMode { Shader, VFX }
+        private EditorMode _mode = EditorMode.Shader;
+        private static readonly string[] ModeLabels = { "Shader", "VFX Effect" };
+
         // ---- State ----
-        private ConversationHistory _history = new();
+        private ConversationHistory _shaderHistory = new();
+        private ConversationHistory _vfxHistory = new();
         private string _inputText = "";
         private bool _isGenerating = false;
         private string _statusMessage = "";
@@ -18,8 +24,9 @@ namespace AIShaderCreator.Editor
         private AIService _selectedService = AIService.Claude;
         private static readonly string[] ServiceLabels = { "Claude", "OpenAI", "Gemini" };
 
-        // ---- Services ----
-        private ShaderGenerationOrchestrator _orchestrator;
+        // ---- Orchestrators ----
+        private ShaderGenerationOrchestrator _shaderOrchestrator;
+        private VFXGenerationOrchestrator _vfxOrchestrator;
 
         // ---- Styles ----
         private GUIStyle _userBubble;
@@ -38,17 +45,18 @@ namespace AIShaderCreator.Editor
         private void OnEnable()
         {
             _selectedService = (AIService)EditorPrefs.GetInt("AIShaderCreator_Service", 0);
-            RebuildOrchestrator();
+            RebuildOrchestrators();
         }
 
-        private void RebuildOrchestrator()
+        private void RebuildOrchestrators()
         {
             if (!AIServiceFactory.HasKey(_selectedService)) return;
             var model = EditorPrefs.GetString(
                 AIServiceFactory.GetModelPrefsKey(_selectedService),
                 AIServiceFactory.GetDefaultModel(_selectedService));
             var client = AIServiceFactory.Create(_selectedService, model);
-            _orchestrator = new ShaderGenerationOrchestrator(client);
+            _shaderOrchestrator = new ShaderGenerationOrchestrator(client);
+            _vfxOrchestrator = new VFXGenerationOrchestrator(client);
         }
 
         private void InitStyles()
@@ -100,6 +108,9 @@ namespace AIShaderCreator.Editor
             // ---- サービス選択 ----
             DrawServiceSelector();
 
+            // ---- モード切替 ----
+            DrawModeSelector();
+
             // ---- チャット履歴 ----
             DrawChatHistory();
 
@@ -109,9 +120,18 @@ namespace AIShaderCreator.Editor
 
             EditorGUILayout.Space(4);
 
-            // ---- 対象GameObject ----
-            _applyToSelected = EditorGUILayout.ToggleLeft(
-                "選択中のGameObjectにマテリアルを適用", _applyToSelected);
+            // ---- オプション ----
+            if (_mode == EditorMode.Shader)
+            {
+                _applyToSelected = EditorGUILayout.ToggleLeft(
+                    "選択中のGameObjectにマテリアルを適用", _applyToSelected);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox(
+                    "エフェクトは Assets/GeneratedVFX/ にプレハブとして保存されます。",
+                    MessageType.Info);
+            }
 
             // ---- 入力エリア ----
             DrawInputArea();
@@ -127,7 +147,7 @@ namespace AIShaderCreator.Editor
             {
                 _selectedService = newService;
                 EditorPrefs.SetInt("AIShaderCreator_Service", (int)_selectedService);
-                RebuildOrchestrator();
+                RebuildOrchestrators();
             }
 
             var hasKey = AIServiceFactory.HasKey(_selectedService);
@@ -141,13 +161,29 @@ namespace AIShaderCreator.Editor
             EditorGUILayout.Space(2);
         }
 
+        private void DrawModeSelector()
+        {
+            var newMode = (EditorMode)GUILayout.Toolbar((int)_mode, ModeLabels);
+            if (newMode != _mode)
+            {
+                _mode = newMode;
+                _statusMessage = "";
+                _chatScrollPos.y = float.MaxValue;
+                Repaint();
+            }
+            EditorGUILayout.Space(4);
+        }
+
+        private ConversationHistory CurrentHistory =>
+            _mode == EditorMode.Shader ? _shaderHistory : _vfxHistory;
+
         private void DrawChatHistory()
         {
-            var chatHeight = position.height - 180;
+            var chatHeight = position.height - (_mode == EditorMode.Shader ? 195 : 210);
             _chatScrollPos = EditorGUILayout.BeginScrollView(
                 _chatScrollPos, GUILayout.Height(chatHeight));
 
-            foreach (var msg in _history.Messages)
+            foreach (var msg in CurrentHistory.Messages)
             {
                 switch (msg.Role)
                 {
@@ -160,7 +196,9 @@ namespace AIShaderCreator.Editor
                         break;
 
                     case MessageRole.Assistant:
-                        var displayContent = TruncateShaderCode(msg.Content);
+                        var displayContent = _mode == EditorMode.Shader
+                            ? TruncateShaderCode(msg.Content)
+                            : TruncateVFXJson(msg.Content);
                         EditorGUILayout.LabelField($"🤖 {displayContent}", _assistantBubble);
                         break;
 
@@ -180,6 +218,10 @@ namespace AIShaderCreator.Editor
 
         private void DrawInputArea()
         {
+            var placeholder = _mode == EditorMode.Shader
+                ? "シェーダーの説明を入力... (Shift+Enter で送信)"
+                : "エフェクトの説明を入力... 例: 青白い炎のような魔法エフェクト (Shift+Enter で送信)";
+
             EditorGUILayout.BeginHorizontal();
 
             GUI.enabled = !_isGenerating;
@@ -195,7 +237,7 @@ namespace AIShaderCreator.Editor
 
             if (GUILayout.Button("クリア", GUILayout.Height(24)))
             {
-                _history.Clear();
+                CurrentHistory.Clear();
                 _inputText = "";
                 _statusMessage = "";
                 Repaint();
@@ -218,10 +260,10 @@ namespace AIShaderCreator.Editor
         {
             if (string.IsNullOrWhiteSpace(_inputText)) return;
 
-            RebuildOrchestrator();
-            if (_orchestrator == null)
+            RebuildOrchestrators();
+            if (_shaderOrchestrator == null || _vfxOrchestrator == null)
             {
-                _history.AddErrorMessage($"{_selectedService} の APIキーが設定されていません。");
+                CurrentHistory.AddErrorMessage($"{_selectedService} の APIキーが設定されていません。");
                 Repaint();
                 return;
             }
@@ -229,27 +271,24 @@ namespace AIShaderCreator.Editor
             var userInput = _inputText.Trim();
             _inputText = "";
             _isGenerating = true;
-            _history.AddUserMessage(userInput);
+            CurrentHistory.AddUserMessage(userInput);
             _chatScrollPos.y = float.MaxValue;
             Repaint();
 
-            EditorCoroutineRunner.Run(GenerateCoroutine(userInput));
+            if (_mode == EditorMode.Shader)
+                EditorCoroutineRunner.Run(GenerateShaderCoroutine(userInput));
+            else
+                EditorCoroutineRunner.Run(GenerateVFXCoroutine(userInput));
         }
 
-        private IEnumerator GenerateCoroutine(string userInput)
+        private IEnumerator GenerateShaderCoroutine(string userInput)
         {
             GenerationResult result = null;
 
-            yield return _orchestrator.GenerateCoroutine(
-                userInput,
-                _history,
-                _applyToSelected,
+            yield return _shaderOrchestrator.GenerateCoroutine(
+                userInput, _shaderHistory, _applyToSelected,
                 r => result = r,
-                status =>
-                {
-                    _statusMessage = status;
-                    Repaint();
-                }
+                status => { _statusMessage = status; Repaint(); }
             );
 
             _isGenerating = false;
@@ -259,21 +298,53 @@ namespace AIShaderCreator.Editor
             {
                 if (result.Success)
                 {
-                    var msg = $"✅ シェーダー '{result.ShaderName}' を生成しました。\n" +
-                              $"パス: {result.ShaderAssetPath}";
+                    var msg = $"✅ シェーダー '{result.ShaderName}' を生成しました。\nパス: {result.ShaderAssetPath}";
                     if (result.WasAutoFixed) msg += "\n（コンパイルエラーを自動修正しました）";
                     if (_applyToSelected && Selection.activeGameObject != null)
                         msg += $"\n📎 {Selection.activeGameObject.name} に適用しました";
-                    _history.AddAssistantMessage(msg);
+                    _shaderHistory.AddAssistantMessage(msg);
                 }
                 else
                 {
-                    _history.AddErrorMessage(result.ErrorMessage ?? "不明なエラーが発生しました。");
+                    _shaderHistory.AddErrorMessage(result.ErrorMessage ?? "不明なエラーが発生しました。");
                     if (!string.IsNullOrEmpty(result.ShaderAssetPath))
                     {
-                        var shader = AssetDatabase.LoadAssetAtPath<UnityEngine.Shader>(result.ShaderAssetPath);
+                        var shader = AssetDatabase.LoadAssetAtPath<Shader>(result.ShaderAssetPath);
                         if (shader != null) EditorGUIUtility.PingObject(shader);
                     }
+                }
+            }
+
+            _chatScrollPos.y = float.MaxValue;
+            Repaint();
+        }
+
+        private IEnumerator GenerateVFXCoroutine(string userInput)
+        {
+            VFXGenerationResult result = null;
+
+            yield return _vfxOrchestrator.GenerateCoroutine(
+                userInput, _vfxHistory,
+                r => result = r,
+                status => { _statusMessage = status; Repaint(); }
+            );
+
+            _isGenerating = false;
+            _statusMessage = "";
+
+            if (result != null)
+            {
+                if (result.Success)
+                {
+                    var msg = $"✅ エフェクト '{result.EffectName}' を生成しました。\nパス: {result.PrefabAssetPath}\n\nシーンにドラッグ＆ドロップして使用してください。";
+                    _vfxHistory.AddAssistantMessage(msg);
+
+                    var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(result.PrefabAssetPath);
+                    if (prefab != null) EditorGUIUtility.PingObject(prefab);
+                }
+                else
+                {
+                    _vfxHistory.AddErrorMessage(result.ErrorMessage ?? "不明なエラーが発生しました。");
                 }
             }
 
@@ -285,14 +356,24 @@ namespace AIShaderCreator.Editor
         {
             const int MaxLen = 300;
             if (content.Length <= MaxLen) return content;
-
             var beginIdx = content.IndexOf("SHADER_BEGIN");
             if (beginIdx < 0) return content.Substring(0, MaxLen) + "...";
-
             var before = content.Substring(0, beginIdx).Trim();
             return string.IsNullOrEmpty(before)
                 ? "[シェーダーコードを生成しました]"
                 : $"{before}\n[シェーダーコードを生成しました]";
+        }
+
+        private string TruncateVFXJson(string content)
+        {
+            const int MaxLen = 300;
+            if (content.Length <= MaxLen) return content;
+            var beginIdx = content.IndexOf("VFX_BEGIN");
+            if (beginIdx < 0) return content.Substring(0, MaxLen) + "...";
+            var before = content.Substring(0, beginIdx).Trim();
+            return string.IsNullOrEmpty(before)
+                ? "[エフェクト設定を生成しました]"
+                : $"{before}\n[エフェクト設定を生成しました]";
         }
     }
 }
