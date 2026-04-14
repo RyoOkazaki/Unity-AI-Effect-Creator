@@ -26,7 +26,8 @@ namespace AIShaderCreator.Editor
             string userPrompt,
             ConversationHistory history,
             Action<VFXGenerationResult> onComplete,
-            Action<string> onStatus)
+            Action<string> onStatus,
+            string editPrefabPath = null)
         {
             onStatus?.Invoke("AIにリクエスト中...");
 
@@ -66,7 +67,7 @@ namespace AIShaderCreator.Editor
             string scriptPath;
             try
             {
-                VFXCodeWriter.Write(effectCode, out _);
+                VFXCodeWriter.Write(effectCode, out _, editPrefabPath);
                 scriptPath = "Assets/GeneratedVFX/_scripts/ (自動削除されます)";
             }
             catch (Exception ex)

@@ -20,6 +20,10 @@ namespace AIShaderCreator.Editor
         private bool _applyToSelected = true;
         private Vector2 _chatScrollPos;
 
+        // ---- 編集追跡 ----
+        private string _lastShaderPath = null;
+        private string _lastVFXPrefabPath = null;
+
         // ---- AI Service selection ----
         private AIService _selectedService = AIService.Claude;
         private static readonly string[] ServiceLabels = { "Claude", "OpenAI", "Gemini" };
@@ -171,6 +175,22 @@ namespace AIShaderCreator.Editor
                 _chatScrollPos.y = float.MaxValue;
                 Repaint();
             }
+
+            // 編集モード表示 + 新規作成ボタン
+            var editPath = _mode == EditorMode.Shader ? _lastShaderPath : _lastVFXPrefabPath;
+            if (editPath != null)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.HelpBox($"編集中: {System.IO.Path.GetFileName(editPath)}", MessageType.None);
+                if (GUILayout.Button("新規作成", GUILayout.Width(70), GUILayout.Height(30)))
+                {
+                    if (_mode == EditorMode.Shader) { _lastShaderPath = null; _shaderHistory.Clear(); }
+                    else { _lastVFXPrefabPath = null; _vfxHistory.Clear(); }
+                    _statusMessage = "";
+                    Repaint();
+                }
+                EditorGUILayout.EndHorizontal();
+            }
             EditorGUILayout.Space(4);
         }
 
@@ -240,6 +260,8 @@ namespace AIShaderCreator.Editor
                 CurrentHistory.Clear();
                 _inputText = "";
                 _statusMessage = "";
+                if (_mode == EditorMode.Shader) _lastShaderPath = null;
+                else _lastVFXPrefabPath = null;
                 Repaint();
             }
             EditorGUILayout.EndVertical();
@@ -288,7 +310,8 @@ namespace AIShaderCreator.Editor
             yield return _shaderOrchestrator.GenerateCoroutine(
                 userInput, _shaderHistory, _applyToSelected,
                 r => result = r,
-                status => { _statusMessage = status; Repaint(); }
+                status => { _statusMessage = status; Repaint(); },
+                editPath: _lastShaderPath
             );
 
             _isGenerating = false;
@@ -298,7 +321,9 @@ namespace AIShaderCreator.Editor
             {
                 if (result.Success)
                 {
-                    var msg = $"✅ シェーダー '{result.ShaderName}' を生成しました。\nパス: {result.ShaderAssetPath}";
+                    _lastShaderPath = result.ShaderAssetPath;
+                    var action = _lastShaderPath != null && result.ShaderAssetPath == _lastShaderPath ? "更新" : "生成";
+                    var msg = $"✅ シェーダー '{result.ShaderName}' を{action}しました。\nパス: {result.ShaderAssetPath}";
                     if (result.WasAutoFixed) msg += "\n（コンパイルエラーを自動修正しました）";
                     if (_applyToSelected && Selection.activeGameObject != null)
                         msg += $"\n📎 {Selection.activeGameObject.name} に適用しました";
@@ -326,7 +351,8 @@ namespace AIShaderCreator.Editor
             yield return _vfxOrchestrator.GenerateCoroutine(
                 userInput, _vfxHistory,
                 r => result = r,
-                status => { _statusMessage = status; Repaint(); }
+                status => { _statusMessage = status; Repaint(); },
+                editPrefabPath: _lastVFXPrefabPath
             );
 
             _isGenerating = false;
@@ -336,8 +362,11 @@ namespace AIShaderCreator.Editor
             {
                 if (result.Success)
                 {
-                    var msg = "✅ エフェクトコードを生成しました。\n\nUnity が自動コンパイル後、Assets/GeneratedVFX/ にプレハブが作成されます。\nコンパイルが完了したら Project ウィンドウを確認してください。";
+                    var action = _lastVFXPrefabPath != null ? "更新" : "生成";
+                    var msg = $"✅ エフェクトコードを{action}しました。\n\nUnity が自動コンパイル後、Assets/GeneratedVFX/ にプレハブが作成されます。\nコンパイルが完了したら Project ウィンドウを確認してください。";
                     _vfxHistory.AddAssistantMessage(msg);
+                    // コンパイル後にプレハブパスが確定するので SessionState から取得
+                    _lastVFXPrefabPath = VFXAutoFixer.GetLastPrefabPath();
                 }
                 else
                 {

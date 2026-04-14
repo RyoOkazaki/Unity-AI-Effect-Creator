@@ -10,7 +10,7 @@ namespace AIShaderCreator.Editor
     {
         private const string ScriptFolder = "Assets/GeneratedVFX/_scripts";
 
-        public static string Write(string effectMethodBody, out string className)
+        public static string Write(string effectMethodBody, out string className, string fixedPrefabPath = null)
         {
             EnsureFolders();
 
@@ -19,10 +19,41 @@ namespace AIShaderCreator.Editor
             var fullPath = Path.Combine(Application.dataPath, "..", scriptPath)
                               .Replace('/', Path.DirectorySeparatorChar);
 
-            File.WriteAllText(fullPath, BuildScript(effectMethodBody, className, scriptPath), Encoding.UTF8);
-            VFXAutoFixer.Register(effectMethodBody, className);
+            // 編集モード時: GenerateUniqueAssetPath を固定パスに置換
+            var codeToWrite = fixedPrefabPath != null
+                ? InjectFixedPath(effectMethodBody, fixedPrefabPath)
+                : effectMethodBody;
+
+            File.WriteAllText(fullPath, BuildScript(codeToWrite, className, scriptPath), Encoding.UTF8);
+            VFXAutoFixer.Register(codeToWrite, className);
+
+            // プレハブパスを SessionState に記録（編集追跡用）
+            if (fixedPrefabPath != null)
+                VFXAutoFixer.SetExpectedPrefabPath(fixedPrefabPath);
+            else
+                ExtractAndStoreExpectedPath(codeToWrite);
+
             AssetDatabase.Refresh();
             return scriptPath;
+        }
+
+        private static void ExtractAndStoreExpectedPath(string code)
+        {
+            // GenerateUniqueAssetPath の引数からベース名を抽出
+            var match = System.Text.RegularExpressions.Regex.Match(
+                code, @"GenerateUniqueAssetPath\s*\(\s*""([^""]+)""\s*\)");
+            if (match.Success)
+                VFXAutoFixer.SetExpectedPrefabPath(match.Groups[1].Value);
+        }
+
+        private static string InjectFixedPath(string code, string fixedPath)
+        {
+            var escaped = fixedPath.Replace("\\", "/");
+            // AssetDatabase.GenerateUniqueAssetPath(...) → "fixedPath"
+            return System.Text.RegularExpressions.Regex.Replace(
+                code,
+                @"AssetDatabase\.GenerateUniqueAssetPath\s*\([^)]+\)",
+                $"\"{escaped}\"");
         }
 
         private static string BuildScript(string body, string className, string scriptPath)

@@ -15,10 +15,18 @@ namespace AIShaderCreator.Editor
     public static class VFXAutoFixer
     {
         // SessionState keys（ドメインリロードを跨いで状態を保持）
-        private const string KeyCode    = "VFXAutoFixer_Code";
-        private const string KeyName    = "VFXAutoFixer_ClassName";
-        private const string KeyAttempt = "VFXAutoFixer_Attempt";
+        private const string KeyCode         = "VFXAutoFixer_Code";
+        private const string KeyName         = "VFXAutoFixer_ClassName";
+        private const string KeyAttempt      = "VFXAutoFixer_Attempt";
+        private const string KeyLastPrefab   = "VFXAutoFixer_LastPrefabPath";
         private const int    MaxAttempts = 3;
+
+        /// <summary>直近に生成されたプレハブのパスを返す。</summary>
+        public static string GetLastPrefabPath() => SessionState.GetString(KeyLastPrefab, null);
+
+        /// <summary>プレハブパスを記録する（VFXCodeWriter から呼ぶ）。</summary>
+        public static void SetExpectedPrefabPath(string path) =>
+            SessionState.SetString(KeyLastPrefab, path);
 
         static VFXAutoFixer()
         {

@@ -30,7 +30,8 @@ namespace AIShaderCreator.Editor
             ConversationHistory history,
             bool applyToSelected,
             Action<GenerationResult> onComplete,
-            Action<string> onStatus)
+            Action<string> onStatus,
+            string editPath = null)
         {
             onStatus?.Invoke("AIにリクエスト中...");
 
@@ -71,7 +72,9 @@ namespace AIShaderCreator.Editor
             var shaderName = ShaderParser.ExtractShaderName(shaderCode);
             onStatus?.Invoke($"シェーダーを保存中: {shaderName}");
 
-            var assetPath = ShaderFileWriter.Write(shaderCode, shaderName);
+            var assetPath = editPath != null
+                ? ShaderFileWriter.Update(editPath, shaderCode)
+                : ShaderFileWriter.Write(shaderCode, shaderName);
 
             yield return null;
             yield return null;
