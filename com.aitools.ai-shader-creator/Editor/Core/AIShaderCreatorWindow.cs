@@ -238,24 +238,25 @@ namespace AIShaderCreator.Editor
 
         private void DrawInputArea()
         {
-            var placeholder = _mode == EditorMode.Shader
-                ? "シェーダーの説明を入力... (Shift+Enter で送信)"
-                : "エフェクトの説明を入力... 例: 青白い炎のような魔法エフェクト (Shift+Enter で送信)";
-
-            EditorGUILayout.BeginHorizontal();
-
+            // テキストエリア（全幅）
             GUI.enabled = !_isGenerating;
             _inputText = EditorGUILayout.TextArea(_inputText,
-                GUILayout.Height(50), GUILayout.ExpandWidth(true));
+                GUILayout.Height(54), GUILayout.ExpandWidth(true));
+            GUI.enabled = true;
 
-            EditorGUILayout.BeginVertical(GUILayout.Width(80));
-            if (GUILayout.Button(_isGenerating ? "生成中..." : "送信",
-                GUILayout.Height(50)) && !_isGenerating)
+            // ボタン行（常に下段に固定）
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+
+            GUI.enabled = !_isGenerating;
+            if (GUILayout.Button(_isGenerating ? "生成中..." : "送信  (Shift+Enter)",
+                GUILayout.Width(150), GUILayout.Height(26)) && !_isGenerating)
             {
                 SendMessage();
             }
+            GUI.enabled = true;
 
-            if (GUILayout.Button("クリア", GUILayout.Height(24)))
+            if (GUILayout.Button("クリア", GUILayout.Width(60), GUILayout.Height(26)))
             {
                 CurrentHistory.Clear();
                 _inputText = "";
@@ -264,9 +265,6 @@ namespace AIShaderCreator.Editor
                 else _lastVFXPrefabPath = null;
                 Repaint();
             }
-            EditorGUILayout.EndVertical();
-            GUI.enabled = true;
-
             EditorGUILayout.EndHorizontal();
 
             var e = Event.current;
