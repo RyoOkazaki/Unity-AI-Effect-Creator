@@ -20,6 +20,7 @@ namespace AIShaderCreator.Editor
                               .Replace('/', Path.DirectorySeparatorChar);
 
             File.WriteAllText(fullPath, BuildScript(effectMethodBody, className, scriptPath), Encoding.UTF8);
+            VFXAutoFixer.Register(effectMethodBody, className);
             AssetDatabase.Refresh();
             return scriptPath;
         }
